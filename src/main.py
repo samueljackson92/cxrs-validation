@@ -17,7 +17,7 @@ def plot_profile_slice(
     plot = ds.hvplot.line(
         x="major_radius",
         y="data",
-        title=f"{name} at t={time_point}s",
+        title=f"{name} at t={time_point:.2f}s",
         ylim=(ymin * 0.9, ymax * 1.1),
         ylabel=name,
     ).opts(**plot_options)
@@ -40,7 +40,7 @@ def plot_volume(name: str, ds: xr.Dataset, time_point: float, radial_point:float
     plot = ds.hvplot.line(
         x="wavelength",
         y="data",
-        title=f"{name} at t={time_point}s and r={radial_point:.2f}m",
+        title=f"{name} at t={time_point:.2f}s and r={radial_point:.2f}m",
         ylim=(ymin * 0.9, ymax * 1.1),
         ylabel=name,
     ).opts(**plot_options)
@@ -95,7 +95,7 @@ def make_volume_plots(ss_fits, ss_counts, ss_bg_counts, ss_sub_fits, ss_sub_coun
     return right_column
 
 def heatmap_plot(ss_temperature, time_point, radial_point):
-    heatmap = ss_temperature.dropna(dim='time').hvplot(x="time", y="major_radius", z="data")
+    heatmap = ss_temperature.dropna(dim='time').hvplot(title='SS Temperature Profile', x="time", y="major_radius", z="data")
     heatmap = (
         heatmap 
         * hv.VLine(time_point).opts(color="red", line_width=2, line_dash="dashed") 
@@ -129,8 +129,12 @@ def main():
     ss_sub_fits = pn.state.as_cached("sub_fits", loader.get_volume_data, name="ACT/CEL3/SS/PVB/SUB_FITS", shot_id=shot_id)
     ss_sub_counts = pn.state.as_cached("sub_counts", loader.get_volume_data, name="ACT/CEL3/SS/PVB/SUB_COUNTS", shot_id=shot_id)
 
-    tmin, tmax = ss_fit_ratio.time.values.min(), ss_fit_ratio.time.values.max()
-    rmin, rmax = ss_fit_ratio.major_radius.values.min(), ss_fit_ratio.major_radius.values.max()
+    ss_temperature = ss_temperature.dropna(dim='time')
+    ss_emissivity   = ss_emissivity.dropna(dim='time')
+    ss_velocity     = ss_velocity.dropna(dim='time')
+
+    tmin, tmax = ss_temperature.time.values.min(), ss_temperature.time.values.max()
+    rmin, rmax = ss_temperature.major_radius.values.min(), ss_temperature.major_radius.values.max()
 
     title = pn.pane.Markdown(
         """
