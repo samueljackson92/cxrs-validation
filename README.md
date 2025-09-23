@@ -11,5 +11,5 @@ pip install -e .
 ## Run
 
 ```bash
-python -m src.main
+panel serve src.main
 ```
