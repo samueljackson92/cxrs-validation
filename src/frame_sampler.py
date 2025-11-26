@@ -7,11 +7,15 @@ from src.data import UDALoader
 
 
 def subsample_dataset(dataset: xr.Dataset, method: str, num_samples: int) -> xr.Dataset:
-    time = dataset.dropna(dim="time", how="all").time
+    time = dataset.ss_counts_data.dropna(dim="time", how="all").time.values
+
     if method == "random":
         sampled_times = np.random.choice(time, size=num_samples, replace=False)
     elif method == "grid":
         sampled_times = time[:: max(1, len(time) // num_samples)]
+    else:
+        raise ValueError(f"Unknown sampling method: {method}")
+
     return dataset.sel(time=sampled_times)
 
 
@@ -50,7 +54,7 @@ def load_dataset(
     time_base = np.arange(min_time, max_time + dt, dt)
     radial_profiles = [ss_fit_ratio, ss_emissivity, ss_velocity, ss_temperature]
     radial_profiles = [profile.interp(time=time_base) for profile in radial_profiles]
-    radial_profiles = xr.merge(radial_profiles)
+    radial_profiles = xr.merge(radial_profiles, compat="identical")
 
     ## SS Fits
     ss_fits = loader.get_volume_data(
@@ -58,6 +62,7 @@ def load_dataset(
         signal_name="ACT/CEL3/SS/PVB/SS_FITS",
         shot_id=shot_id,
     )
+
     ss_counts = loader.get_volume_data(
         name="ss_counts",
         signal_name="ACT/CEL3/SS/COUNTS",
@@ -86,18 +91,23 @@ def load_dataset(
     wavelength_profiles = [
         profile.interp(time=time_base) for profile in wavelength_profiles
     ]
-    wavelength_profiles = xr.merge(wavelength_profiles)
-
-    # Subsample both wavelength profiles in time
-    wavelength_profiles = subsample_dataset(
-        wavelength_profiles, method=sample_method, num_samples=num_samples
+    wavelength_profiles = xr.merge(wavelength_profiles, compat="identical")
+    wavelength_range = (528, 531)
+    wavelength_profiles = wavelength_profiles.sel(
+        wavelength=slice(wavelength_range[0], wavelength_range[1])
     )
+
+    # # Subsample wavelength profiles in time
+    # wavelength_profiles = subsample_dataset(
+    #     wavelength_profiles, method=sample_method, num_samples=num_samples
+    # )
 
     dataset = xr.merge(
         [
             radial_profiles,
             wavelength_profiles,
-        ]
+        ],
+        compat="identical",
     )
 
     dataset = dataset.expand_dims({"shot_id": [shot_id]})
