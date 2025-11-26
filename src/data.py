@@ -15,9 +15,11 @@ class UDALoader:
     def __init__(self):
         self.client = Client()
 
-    def get_radial_profile(self, name: str, shot_id: int) -> xr.DataArray:
+    def get_radial_profile(
+        self, name: str, signal_name: str, shot_id: int
+    ) -> xr.Dataset:
         logger.info(f"Loading {name} for shot {shot_id}")
-        signal = self.client.get(name, shot_id)
+        signal = self.client.get(signal_name, shot_id)
         data = xr.DataArray(
             signal.data,
             dims=("time", "major_radius"),
@@ -27,12 +29,12 @@ class UDALoader:
         error = xr.DataArray(
             signal.errors, dims=("time", "major_radius"), coords=data.coords
         )
-        ds = xr.Dataset({"data": data, "error": error})
+        ds = xr.Dataset({f"{name}_data": data, f"{name}_error": error})
         return ds
 
-    def get_volume_data(self, name: str, shot_id: int) -> xr.DataArray:
+    def get_volume_data(self, name: str, signal_name: str, shot_id: int) -> xr.Dataset:
         logger.info(f"Loading {name} for shot {shot_id}")
-        signal = self.client.get(name, shot_id)
+        signal = self.client.get(signal_name, shot_id)
         wavelength = self.client.get("/act/cel3/ss/wavelength", shot_id)
 
         data = xr.DataArray(
@@ -51,5 +53,5 @@ class UDALoader:
             coords=data.coords,
         )
 
-        ds = xr.Dataset({"data": data, "error": error})
+        ds = xr.Dataset({f"{name}_data": data, f"{name}_error": error})
         return ds
