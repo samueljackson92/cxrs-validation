@@ -2,12 +2,87 @@ import argparse
 import numpy as np
 import pandas as pd
 import panel as pn
-from loguru import logger
 import holoviews as hv
 import hvplot.xarray  # noqa: F401
+import param
 import xarray as xr
+from loguru import logger
+from typing import TypedDict, NotRequired
+from panel.custom import ReactComponent
+from panel.models.esm import DataEvent
 
 pn.extension(design="material", sizing_mode="stretch_width")
+
+
+# Note: this uses TypedDict instead of Pydantic or dataclass because Bokeh/Panel doesn't seem to
+# like serializing custom classes to the frontend (and I can't figure out how to customize that).
+class KeyboardShortcut(TypedDict):
+    name: str
+    key: str
+    altKey: NotRequired[bool]
+    ctrlKey: NotRequired[bool]
+    metaKey: NotRequired[bool]
+    shiftKey: NotRequired[bool]
+
+
+class KeyboardShortcuts(ReactComponent):
+    """
+    Class to install global keyboard shortcuts into a Panel app.
+
+    Pass in shortcuts as a list of KeyboardShortcut dictionaries, and then handle shortcut events in Python
+    by calling `on_msg` on this component. The `name` field of the matching KeyboardShortcut will be sent as the `data`
+    field in the `DataEvent`.
+
+    Example:
+    >>> shortcuts = [
+        KeyboardShortcut(name="save", key="s", ctrlKey=True),
+        KeyboardShortcut(name="print", key="p", ctrlKey=True),
+    ]
+    >>> shortcuts_component = KeyboardShortcuts(shortcuts=shortcuts)
+    >>> def handle_shortcut(event: DataEvent):
+            if event.data == "save":
+                print("Save shortcut pressed!")
+            elif event.data == "print":
+                print("Print shortcut pressed!")
+    >>> shortcuts_component.on_msg(handle_shortcut)
+    """
+
+    shortcuts = param.List(class_=dict)
+
+    _esm = """
+    // Hash a shortcut into a string for use in a dictionary key (booleans / null / undefined are coerced into 1 or 0)
+    function hashShortcut({ key, altKey, ctrlKey, metaKey, shiftKey }) {
+      return `${key}.${+!!altKey}.${+!!ctrlKey}.${+!!metaKey}.${+!!shiftKey}`;
+    }
+
+    export function render({ model }) {
+      const [shortcuts] = model.useState("shortcuts");
+
+      const keyedShortcuts = {};
+      for (const shortcut of shortcuts) {
+        keyedShortcuts[hashShortcut(shortcut)] = shortcut.name;
+      }
+
+      function onKeyDown(e) {
+        const name = keyedShortcuts[hashShortcut(e)];
+        if (name) {
+          e.preventDefault();
+          e.stopPropagation();
+          model.send_msg(name);
+          return;
+        }
+      }
+
+      React.useEffect(() => {
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+          window.removeEventListener('keydown', onKeyDown);
+        };
+      });
+
+      return <></>;
+    }
+    """
 
 
 def plot_profile_slice(
@@ -248,13 +323,62 @@ class CXRSValidationApp:
             """
         )
 
+        categorical_options = ["1 - Bad", "2 - Average", "3 - Good"]
+        emissivity_title = pn.pane.Markdown(
+            """
+            ### Emissivity Quality Label
+            """
+        )
+
+        self.emissivity_label = pn.widgets.RadioBoxGroup(
+            name="Emissivity Quality",
+            options=categorical_options,
+            inline=False,
+        )
+
+        velocity_title = pn.pane.Markdown(
+            """
+            ### Velocity Quality Label
+            """
+        )
+
+        self.velocity_label = pn.widgets.RadioBoxGroup(
+            name="Velocity Quality",
+            options=categorical_options,
+            inline=False,
+        )
+
+        temperature_title = pn.pane.Markdown(
+            """
+            ### Temperature Quality Label
+            """
+        )
+
+        self.temperature_label = pn.widgets.RadioBoxGroup(
+            name="Temperature Quality",
+            options=categorical_options,
+            inline=False,
+        )
+
+        self.groups = [
+            self.emissivity_label,
+            self.velocity_label,
+            self.temperature_label,
+        ]
+        pn.state.cache.setdefault("focus_index", 0)
+
         def handle_next_click(event):
+            for group in self.groups:
+                group.value = categorical_options[0]
             self.save_state()
             self.current_index += 1
             self._get_frame(self.current_index)
             self.contents[:] = self.replot_data()
 
         def handle_prev_click(event):
+            for group in self.groups:
+                group.value = categorical_options[0]
+            self.save_state()
             self.current_index -= 1
             self._get_frame(self.current_index)
             self.contents[:] = self.replot_data()
@@ -267,41 +391,39 @@ class CXRSValidationApp:
 
         navigation = pn.Row(prev_button, next_button)
 
-        emissivity_title = pn.pane.Markdown(
-            """
-            ### Emissivity Quality Label
-            """
-        )
+        shortcuts = [
+            KeyboardShortcut(name=categorical_options[0], key="1"),
+            KeyboardShortcut(name=categorical_options[1], key="2"),
+            KeyboardShortcut(name=categorical_options[2], key="3"),
+            KeyboardShortcut(name="enter", key="Enter"),
+            KeyboardShortcut(name="leftarrow", key="ArrowLeft"),
+            KeyboardShortcut(name="rightarrow", key="ArrowRight"),
+        ]
+        shortcuts_component = KeyboardShortcuts(shortcuts=shortcuts)
 
-        self.emissivity_label = pn.widgets.RadioBoxGroup(
-            name="Emissivity Quality",
-            options=["0 - Bad", "1 - Average", "2 - Good"],
-            inline=False,
-        )
+        def handle_shortcut(event: DataEvent):
+            current_group = pn.state.cache["focus_index"]
 
-        velocity_title = pn.pane.Markdown(
-            """
-            ### Velocity Quality Label
-            """
-        )
+            # Handle enter key to move to next group
+            if event.data == "enter":
+                pn.state.cache["focus_index"] = (current_group + 1) % len(self.groups)
+                return
 
-        self.velocity_label = pn.widgets.RadioBoxGroup(
-            name="Velocity Quality",
-            options=["0 - Bad", "1 - Average", "2 - Good"],
-            inline=False,
-        )
+            # Handle arrow keys to change selection
+            if event.data == "leftarrow":
+                pn.state.cache["focus_index"] = 0
+                handle_prev_click(event)
+                return
 
-        temperature_title = pn.pane.Markdown(
-            """
-            ### Temperature Quality Label
-            """
-        )
+            if event.data == "rightarrow":
+                pn.state.cache["focus_index"] = 0
+                handle_next_click(event)
+                return
 
-        self.temperature_label = pn.widgets.RadioBoxGroup(
-            name="Temperature Quality",
-            options=["0 - Bad", "1 - Average", "2 - Good"],
-            inline=False,
-        )
+            group = self.groups[current_group]
+            group.value = event.data
+
+        shortcuts_component.on_msg(handle_shortcut)
 
         sidebar = pn.Column(
             title,
@@ -312,6 +434,7 @@ class CXRSValidationApp:
             self.velocity_label,
             temperature_title,
             self.temperature_label,
+            shortcuts_component,
         )
 
         left, right = self.replot_data()
