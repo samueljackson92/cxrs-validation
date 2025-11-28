@@ -16,6 +16,7 @@ def plot_profile_slice(
     time_point: float,
     radial_point: float,
     plot_options: dict,
+    errors_only: bool = False,
 ) -> None:
     ds = ds.sel(time=time_point).copy()
     ds = ds.rename({f"{name}_data": "data", f"{name}_error": "error"})
@@ -27,11 +28,11 @@ def plot_profile_slice(
         title=f"{name} at t={time_point:.2f}s",
         ylim=(ymin * 0.8, ymax * 1.2),
         ylabel=name,
-    ).opts(**plot_options)
+    ).opts(**plot_options, line_alpha=0 if errors_only else 1)
 
     error_bars = hv.ErrorBars(
         (ds["major_radius"].values, ds["data"].values, ds["error"].values),
-    ).opts(line_alpha=0)
+    ).opts()
 
     radial_point_line = hv.VLine(radial_point).opts(
         color="red", line_width=2, line_dash="dashed"
@@ -49,6 +50,9 @@ def plot_volume(
     plot_options: dict,
     no_padding: bool = False,
     rename: bool = True,
+    errors_only: bool = False,
+    no_errors: bool = False,
+    line_style: str = "solid",
 ) -> None:
     ds = ds.sel(time=time_point, major_radius=radial_point)
     if rename:
@@ -66,13 +70,17 @@ def plot_volume(
         title=f"{name} at t={time_point:.2f}s and r={radial_point:.2f}m",
         ylim=ylim,
         ylabel=name,
-    ).opts(**plot_options)
+    ).opts(**plot_options, line_alpha=0 if errors_only else 1, line_dash=line_style)
 
     error_bars = hv.ErrorBars(
         (ds["wavelength"].values, ds["data"].values, ds["error"].values),
-    ).opts(line_alpha=0)
+    ).opts(**plot_options)
+
+    if no_errors:
+        return plot
 
     plot = plot * error_bars
+
     return plot
 
 
@@ -86,16 +94,36 @@ def make_line_plots(
     plot_options,
 ):
     fit_ratio_plot = plot_profile_slice(
-        "fit_ratio", ss_fit_ratio, time_point, radial_point, plot_options
+        "fit_ratio",
+        ss_fit_ratio,
+        time_point,
+        radial_point,
+        plot_options,
+        errors_only=True,
     )
     emissivity_plot = plot_profile_slice(
-        "emissivity", ss_emissivity, time_point, radial_point, plot_options
+        "emissivity",
+        ss_emissivity,
+        time_point,
+        radial_point,
+        plot_options,
+        errors_only=True,
     )
     velocity_plot = plot_profile_slice(
-        "velocity", ss_velocity, time_point, radial_point, plot_options
+        "velocity",
+        ss_velocity,
+        time_point,
+        radial_point,
+        plot_options,
+        errors_only=True,
     )
     temperature_plot = plot_profile_slice(
-        "temperature", ss_temperature, time_point, radial_point, plot_options
+        "temperature",
+        ss_temperature,
+        time_point,
+        radial_point,
+        plot_options,
+        errors_only=True,
     )
 
     left_column = (
@@ -118,10 +146,15 @@ def make_volume_plots(
     plot_options,
 ):
     ss_fits_plot = plot_volume(
-        "ss_fits", ss_fits, time_point, radial_point, plot_options
+        "ss_fits", ss_fits, time_point, radial_point, plot_options, no_errors=True
     )
     ss_counts_plot = plot_volume(
-        "ss_counts", ss_counts, time_point, radial_point, plot_options
+        "ss_counts",
+        ss_counts,
+        time_point,
+        radial_point,
+        plot_options,
+        errors_only=True,
     )
     ss_bg_counts_plot = plot_volume(
         "ss_bg_counts",
@@ -129,6 +162,8 @@ def make_volume_plots(
         time_point,
         radial_point,
         plot_options,
+        line_style="dashed",
+        no_errors=True,
     )
 
     ss_sub_fits_plot = plot_volume(
@@ -144,24 +179,30 @@ def make_volume_plots(
         time_point,
         radial_point,
         plot_options,
+        errors_only=True,
     )
 
-    ss_sub_residual = ss_sub_counts.rename(
+    ss_sub_residual = ss_sub_counts.copy().rename(
         {"ss_sub_counts_data": "data", "ss_sub_counts_error": "error"}
-    ) - ss_sub_fits.rename({"ss_sub_fits_data": "data", "ss_sub_fits_error": "error"})
+    ) - ss_sub_fits.copy().rename(
+        {"ss_sub_fits_data": "data", "ss_sub_fits_error": "error"}
+    )
+
     ss_sub_residual_plot = plot_volume(
-        "",
+        "residual",
         ss_sub_residual,
         time_point,
         radial_point,
         plot_options,
         no_padding=True,
         rename=False,
+        errors_only=True,
     )
     zero_line = hv.HLine(0).opts(color="black", line_width=2, line_dash="solid")
     ss_sub_residual_plot = ss_sub_residual_plot * zero_line
 
     ss_plot = ss_fits_plot * ss_counts_plot * ss_bg_counts_plot
+
     ss_sub_plot = (ss_sub_fits_plot * ss_sub_counts_plot).opts(padding=(0.1, 0.1))
 
     right_column = (
